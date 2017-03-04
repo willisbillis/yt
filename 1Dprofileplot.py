@@ -1,8 +1,10 @@
 import yt, os, sys, time, traceback, threading
+from yt import YTQuantity
+from yt.units import dimensions
 
 yt.enable_parallelism()
 
-# This is an interactive UI for loading in data sets to yt and creating 1D PhasePlots.
+# This is an interactive UI for loading in data sets to yt and creating 1D ProfilePlots.
 # It takes raw_inputs from the user to determine the file(s) and fields to
 # run the PhasePlots on. These inputs are written to a configuration file so it
 # can be accessed by multiple processors when run in parallel. Every file is
@@ -10,13 +12,69 @@ yt.enable_parallelism()
 # function. Tags such as 'CONFIG OPEN', 'debug', and 'COMPLETE (2.2)' are
 # printed to update the user on what is happening in the program.
 
-    #insert into script to print full callstack (for debugging)
+################################################################################
+    # insert into script to print full callstack (for debugging)
 def trace():
     for line in traceback.format_stack():
         print line.strip()
 
-    #assigns variable to config file and returns open file
+################################################################################
+    # new fields
+def cloud_velz(field,data):
+    bulk_vel=YTQuantity(140e5, 'cm/s')
+    return data['flash', 'velz'].in_units('cm/s')-bulk_vel
+yt.add_field(("gas", "cloud_velz"), units="cm/s", function=cloud_velz)
+
+def dyn_pressure(field,data):
+    dyn_press=data['gas', 'kinetic_energy']/data['gas', 'cell_volume']
+    return dyn_press
+yt.add_field(("gas", "dyn_pressure"), units="auto", dimensions=dimensions.pressure, function=dyn_pressure)
+
+def partcntH(field,data):
+    molmass = YTQuantity(1.00794, "g")
+    partcnt = data['flash','h   ']*data['gas','cell_mass']/molmass*6.0221409e23
+    return partcnt
+yt.add_field(('gas','partcntH'), function = partcntH, units = "")
+
+def partcntO(field,data):
+    molmass = YTQuantity(15.9994, "g")
+    partcnt = (data['flash','o   '] +
+                data['flash','o1  '] +
+                data['flash','o2  '] +
+                data['flash','o3  '] +
+                data['flash','o4  '] +
+                data['flash','o5  '] +
+                data['flash','o6  '] +
+                data['flash','o7  '] +
+                data['flash','o8  '] )*data['gas','cell_mass']/molmass*6.0221409e23
+    return partcnt
+yt.add_field(('gas','partcntO'), function = partcntO, units = "")
+
+def pressure(field,data):
+    R = YTQuantity(8.3144598e6, 'cm**3*Pa/K')
+    pressure = (data['gas','partcntO']+data['gas','partcntH'])/6.0221409e23*R*data['gas','temperature'].in_units("K")/data['gas','cell_volume'].in_units("cm**3")
+    return pressure.convert_to_units("Pa")
+yt.add_field(("gas","pressure"), units = "Pa", function=pressure, force_override=True)
+
+def ram_pressure_z(field,data):
+    ram_press=0.5*data['gas', 'density']*(data['gas', 'velocity_z']**2)
+    return ram_press
+yt.add_field(("gas", "ram_pressure_z"), units="g*cm**-1*s**-2", function=ram_pressure_z, force_override=True)
+
+def ram_pressure_tot(field,data):
+    ram_press=0.5*data['gas','density']*((data['gas', 'velocity_x']**2)+(data['gas', 'velocity_y']**2)+(data['gas', 'velocity_z']**2))
+    return ram_press
+yt.add_field(("gas", "ram_pressure_tot"), units="g*cm**-1*s**-2", function=ram_pressure_tot, force_override=True)
+
+def mach_speed(field,data):
+    sound_speed = (data['gas','pressure']/data['gas','density'].in_units('kg/m**3'))**0.5
+    mach_speed = (((data['gas', 'velocity_x']**2)+(data['gas', 'velocity_y']**2)+(data['gas', 'velocity_z']**2))**(0.5)).in_units("m/s")/sound_speed
+    return mach_speed
+yt.add_field(('gas','mach_speed'), units="", function=mach_speed)
+
+################################################################################
 def open_config():
+    # assigns variable to config file and returns open file
     config = open("config.txt", "r")
     config.close()
     if config.closed:
@@ -26,21 +84,19 @@ def open_config():
     else:
         print "ERROR: CANNOT READ CONFIG"
         sys.exit()
-
-    #wipes config file after use in the event the next run would try to use old config parameters
 def clear_config():
+    # wipes config file after use in the event the next run would try to use old config parameters
     config = open("config.txt", "w")
     config.close()
-
-    #write input parameters to a configuration txt file so all processors have access
 def input():
+    # write input parameters to a configuration txt file so all processors have access in parallel
     print "input"
     config = open("config.txt", "w")
     print "OPEN (1)"
     full = raw_input("run all files? (y/n): ")
     fl_nm = raw_input("enter filename: ").strip()
-    field_x = raw_input("first field: ")
-    field_y = raw_input("second field: ")
+    field_x = raw_input("x-axis field: ")
+    field_y = raw_input("y-axis field: ")
     if full != "y":
         full = "n"
     config.write(full + '\n')
@@ -49,9 +105,8 @@ def input():
     config.write(field_y)
     config.close()
     print "CLOSED (1)"
-
-    #checks for given fields in stored yt field lists
 def debug(loadfile,field_x,field_y):
+    #checks for given fields in stored yt field lists
     print "debug"
     fields = [x[1] for x in loadfile.field_list] + [x[1] for x in loadfile.derived_field_list]
     if field_x in fields:
@@ -59,41 +114,48 @@ def debug(loadfile,field_x,field_y):
     else:
         print "%s not available (field_x)" % field_x
         return False
-    if field2 in fields:
+    if field_y in fields:
         return True
     else:
         print "%s not available (field_y)" % field_y
         return False
-
+def rescale(plot,field_x):
+    #rescales x-axis of final plot for consistency
+    if field_x == "density":
+        plot.set_xlim(1e-28,1e-22)
+    if field_x == "temperature":
+        plot.set_xlim(1e2,1e7)
+    return plot
+def runfile(domain_data,field_x,field_y):
+    # runs a single file
+    print "runfile"
+    plot = yt.ProfilePlot(domain_data,field_x,[field_y])
+    rescale(plot,field_x)
+    if yt.is_root():
+        plot.save()
+def save_data(ds,field_x,field_y,tseries):
+    # saves sliceplots to separate directory inside working directory
+    directory = os.getcwd() + "/1D_{0}_{1}".format(field_x,field_y)
+    prefix = ds[0:-4]
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    for x in xrange(0,len(tseries)):
+        source_file = os.getcwd() + "/{0}%04d_1d-Profile_{1}_{2}.png".format(prefix,field_x,field_y) % x
+        destination = os.getcwd() + "/1D_{1}_{2}/{0}%04d_1d-Profile_{1}_{2}.png".format(prefix,field_x,field_y) % x
+        if os.path.exists(source_file):
+            print "moving %s..." % source_file
+            os.rename(source_file, destination)
+    print "Data saved to: %s/1D_{0}_{1}".format(field_x,field_y) % os.getcwd()
 def time_fix(t):
+    # outputs time in more readable units
     if t <= 60:
         print "Elapsed time: %.1f sec" % t
     elif t <= 7200:
         t = float(t)/60
         print "Elapsed time: %.1f min" % t
     return
-
-def save_data(field_x,field_y):
-    print "save_data"
-    directory = "/data/mewilliams/Run1/1DProfile_{0}_{1}".format(field_x,field_y)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    source_file = "/data/mewilliams/Run1/Multi-data_1d-Profile_{0}_{1}.png".format(field_x,field_y)
-    destination = "/data/mewilliams/Run1/{0}_{1}/Multi-data_1d-Profile_{0}_{1}.png".format(field_x,field_y)
-    if os.path.exists(source_file):
-        os.rename(source_file, destination)
-    print "Data saved to: /data/mewilliams/Run1/1DProfile_{0}_{1}".format(field_x,field_y)
-
-    #rescales x-axis of final plot for consistency
-def rescale(plot,field_x):
-    if field_x == "density":
-        plot.set_xlim(1e-28,1e-22)
-    if field_x == "temperature":
-        plot.set_xlim(1e2,1e7)
-    return plot
-
-    #run all files
 def run_set(config_fl):
+    #run all files
     print "run_set"
     t0 = float(time.time())
     #first line of config file must be stored as null so that fl_nm,field_x, and
@@ -108,33 +170,22 @@ def run_set(config_fl):
     time_series = fl_nm[0:-4] + "????"
     ts = yt.load(time_series)
     if debug(data,field_x,field_y) == True:
-        profiles = []
-        labels = []
         for ds in ts.piter():
             ad = ds.all_data()
-            if yt.is_root():
-                # Create a 1d profile of field_x vs. field_y
-                profiles.append(yt.create_profile(ad,field_x,fields=[field_y]))
-                # Add labels
-                labels.append("t = %.f Myr" % ds.current_time.in_units("Myr"))
-                # Create the profile plot from the list of profiles
-                plot = yt.ProfilePlot.from_profiles(profiles, labels=labels)
-                rescale(plot,field_x)
-                # Save the image
-                plot.save()
+            runfile(ad,field_x,field_y)
     else:
-        print "NOT RUN"
+        clear_config()
         sys.exit()
     if yt.is_root():
+        save_data(fl_nm,field_x,field_y,ts)
         print "FILES RUN: " + str(len(ts))
         print "FIELD_X: " + field_x
         print "FIELD_Y: " + field_y
-        save_data(field_x,field_y,ts)
     t1 = float(time.time())
     if yt.is_root():
         time_fix(t1 - t0)
-
-#run program
+################################################################################
+#Running the program
 
 #input function is run serially to only write parameters to config file once
 if yt.is_root():
@@ -159,7 +210,6 @@ def main_sing(config_fl):
         if debug(ds,field_x,field_y) == True:
             ad = ds.all_data()
             plot = yt.ProfilePlot(ad,field_x,field_y)
-            trace()
             rescale(plot,field_x)
             plot.save()
         print "FILE NAME: " + fl_nm
