@@ -2,6 +2,23 @@ import yt
 from yt import YTQuantity
 from yt.units import dimensions
 
+################################################################################
+    # insert into script to print full callstack (for debugging)
+def trace():
+    for line in traceback.format_stack():
+        print line.strip()
+
+def time_fix(t):
+    # outputs time in more readable units
+    if t <= 60:
+        print "Elapsed time: %.1f sec" % t
+    elif t <= 7200:
+        t = float(t)/60
+        print "Elapsed time: %.1f min" % t
+    return
+################################################################################
+    # Create new derived fields
+
 def partcntH(field,data):
     molmass = YTQuantity(1.00794, "g")
     partcnt = data['flash','h   ']*data['gas','cell_mass']/molmass*6.0221409e23
@@ -50,18 +67,14 @@ def pressure(field,data):
     return pressure.convert_to_units("Pa")
 yt.add_field(("gas","pressure"), units = "Pa", function=pressure, force_override=True)
 
-def ram_pressure_z(field,data):
-    ram_press=0.5*data['gas', 'density']*(data['gas', 'velocity_z']**2)
-    return ram_press
-yt.add_field(("gas", "ram_pressure_z"), units="g*cm**-1*s**-2", function=ram_pressure_z, force_override=True)
-
-def ram_pressure_tot(field,data):
+def ram_pressure(field,data):
     ram_press=0.5*data['gas','density']*((data['gas', 'velocity_x']**2)+(data['gas', 'velocity_y']**2)+(data['gas', 'velocity_z']**2))
-    return ram_press
-yt.add_field(("gas", "ram_pressure_tot"), units="g*cm**-1*s**-2", function=ram_pressure_tot, force_override=True)
+    return ram_press.convert_to_units("Pa")
+yt.add_field(("gas", "ram_pressure"), units="Pa", function=ram_pressure, force_override=True)
 
 def mach_speed(field,data):
     sound_speed = (data['gas','pressure']/data['gas','density'].in_units('kg/m**3'))**0.5
     mach_speed = (((data['gas', 'velocity_x']**2)+(data['gas', 'velocity_y']**2)+(data['gas', 'velocity_z']**2))**(0.5)).in_units("m/s")/sound_speed
     return mach_speed
 yt.add_field(('gas','mach_speed'), units="", function=mach_speed)
+
