@@ -1,6 +1,7 @@
 import yt, os, sys, time, traceback, threading
 from yt import YTQuantity
 from yt.units import dimensions
+from setup import *
 
 yt.enable_parallelism()
 
@@ -11,66 +12,6 @@ yt.enable_parallelism()
 # checked to make sure that the fields are valid inputs by the debug()
 # function. Tags such as 'CONFIG OPEN', 'debug', and 'COMPLETE (2.2)' are
 # printed to update the user on what is happening in the program.
-
-################################################################################
-    # insert into script to print full callstack (for debugging)
-def trace():
-    for line in traceback.format_stack():
-        print line.strip()
-
-################################################################################
-    # new fields
-def cloud_velz(field,data):
-    bulk_vel=YTQuantity(140e5, 'cm/s')
-    return data['flash', 'velz'].in_units('cm/s')-bulk_vel
-yt.add_field(("gas", "cloud_velz"), units="cm/s", function=cloud_velz)
-
-def dyn_pressure(field,data):
-    dyn_press=data['gas', 'kinetic_energy']/data['gas', 'cell_volume']
-    return dyn_press
-yt.add_field(("gas", "dyn_pressure"), units="auto", dimensions=dimensions.pressure, function=dyn_pressure)
-
-def partcntH(field,data):
-    molmass = YTQuantity(1.00794, "g")
-    partcnt = data['flash','h   ']*data['gas','cell_mass']/molmass*6.0221409e23
-    return partcnt
-yt.add_field(('gas','partcntH'), function = partcntH, units = "")
-
-def partcntO(field,data):
-    molmass = YTQuantity(15.9994, "g")
-    partcnt = (data['flash','o   '] +
-                data['flash','o1  '] +
-                data['flash','o2  '] +
-                data['flash','o3  '] +
-                data['flash','o4  '] +
-                data['flash','o5  '] +
-                data['flash','o6  '] +
-                data['flash','o7  '] +
-                data['flash','o8  '] )*data['gas','cell_mass']/molmass*6.0221409e23
-    return partcnt
-yt.add_field(('gas','partcntO'), function = partcntO, units = "")
-
-def pressure(field,data):
-    R = YTQuantity(8.3144598e6, 'cm**3*Pa/K')
-    pressure = (data['gas','partcntO']+data['gas','partcntH'])/6.0221409e23*R*data['gas','temperature'].in_units("K")/data['gas','cell_volume'].in_units("cm**3")
-    return pressure.convert_to_units("Pa")
-yt.add_field(("gas","pressure"), units = "Pa", function=pressure, force_override=True)
-
-def ram_pressure_z(field,data):
-    ram_press=0.5*data['gas', 'density']*(data['gas', 'velocity_z']**2)
-    return ram_press
-yt.add_field(("gas", "ram_pressure_z"), units="g*cm**-1*s**-2", function=ram_pressure_z, force_override=True)
-
-def ram_pressure_tot(field,data):
-    ram_press=0.5*data['gas','density']*((data['gas', 'velocity_x']**2)+(data['gas', 'velocity_y']**2)+(data['gas', 'velocity_z']**2))
-    return ram_press
-yt.add_field(("gas", "ram_pressure_tot"), units="g*cm**-1*s**-2", function=ram_pressure_tot, force_override=True)
-
-def mach_speed(field,data):
-    sound_speed = (data['gas','pressure']/data['gas','density'].in_units('kg/m**3'))**0.5
-    mach_speed = (((data['gas', 'velocity_x']**2)+(data['gas', 'velocity_y']**2)+(data['gas', 'velocity_z']**2))**(0.5)).in_units("m/s")/sound_speed
-    return mach_speed
-yt.add_field(('gas','mach_speed'), units="", function=mach_speed)
 
 ################################################################################
 def open_config():
@@ -146,14 +87,6 @@ def save_data(ds,field_x,field_y,tseries):
             print "moving %s..." % source_file
             os.rename(source_file, destination)
     print "Data saved to: %s/1D_{0}_{1}".format(field_x,field_y) % os.getcwd()
-def time_fix(t):
-    # outputs time in more readable units
-    if t <= 60:
-        print "Elapsed time: %.1f sec" % t
-    elif t <= 7200:
-        t = float(t)/60
-        print "Elapsed time: %.1f min" % t
-    return
 def run_set(config_fl):
     #run all files
     print "run_set"
