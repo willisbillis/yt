@@ -1,13 +1,20 @@
 # Running in Parallel
 
-This code may be run serially or in parallel. Running in parallel uses the mpi4py module which must be installed if it is not already.
+The following scripts may be run serially or in parallel: 
+
+    3fieldmaps.py
+    1DProfileplot.py
+    vel_disp_parallel.py
+
+Running in parallel uses the mpi4py module (which must be installed if it is not already).
+
 This can be done by running: 
 
     pip install mpi4py
 
 To run a script in parallel, run 
 
-    mpirun -np 4 python script.py
+    mpiexec -n 4 python script.py
 
 where 4 is the number of processors to run on and script.py is the script to run.
 
