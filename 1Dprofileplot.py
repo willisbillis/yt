@@ -116,7 +116,7 @@ def run_set(config_fl):
         print "FIELD_Y: " + field_y
     t1 = float(time.time())
     if yt.is_root():
-        time_fix(t1 - t0)
+        timer(t1 - t0)
 ################################################################################
 #Running the program
 
@@ -150,7 +150,7 @@ def main_sing(config_fl):
         print "FIELD_Y: " + field_y
         t1 = float(time.time())
         print "COMPLETE (2.2)"
-        time_fix(t1 - t0)
+        timer(t1 - t0)
 
 while True:
     config = open("config.txt","r")
