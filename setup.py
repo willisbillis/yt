@@ -1,23 +1,33 @@
+from __future__ import division
 import yt
 from yt import YTQuantity
 from yt.units import dimensions
+import numpy as np
 
 ################################################################################
     # insert into script to print full callstack (for debugging)
 def trace():
     for line in traceback.format_stack():
         print line.strip()
-
-def time_fix(t):
+def timer(t):
     # outputs time in more readable units
     if t <= 60:
-        print "Elapsed time: %.1f sec" % t
+        return "Elapsed time: %.1f sec" % t
     elif t <= 7200:
         t = float(t)/60
-        print "Elapsed time: %.1f min" % t
-    return
+        return "Elapsed time: %.1f min" % t
 ################################################################################
     # Create new derived fields
+
+def kmsvel_z(field,data):
+    kmsvel_z = data["velocity_z"].in_units("km/s")
+    return kmsvel_z
+yt.add_field(("gas","velocity_Z"), function = kmsvel_z, units = "km/s")
+
+def kmsvel_x(field,data):
+    kmsvel_x = data["velocity_x"].in_units("km/s")
+    return kmsvel_x
+yt.add_field(("gas","velocity_X"), function = kmsvel_x, units = "km/s")
 
 def partcntH(field,data):
     molmass = YTQuantity(1.00794, "g")
@@ -73,8 +83,13 @@ def ram_pressure(field,data):
 yt.add_field(("gas", "ram_pressure"), units="Pa", function=ram_pressure, force_override=True)
 
 def mach_speed(field,data):
-    sound_speed = (data['gas','pressure']/data['gas','density'].in_units('kg/m**3'))**0.5
+    gamma = 5.0/3.0
+    sound_speed = (gamma*data['gas','pressure']/data['gas','density'].in_units('kg/m**3'))**0.5
     mach_speed = (((data['gas', 'velocity_x']**2)+(data['gas', 'velocity_y']**2)+(data['gas', 'velocity_z']**2))**(0.5)).in_units("m/s")/sound_speed
     return mach_speed
 yt.add_field(('gas','mach_speed'), units="", function=mach_speed)
 
+def specific_KE(field,data):
+    ske = 0.5*data["velocity_z"]**2
+    return ske.in_units("J/g")
+yt.add_field(('gas','specific_KE'), units="J/g", function=specific_KE)
