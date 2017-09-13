@@ -18,7 +18,7 @@ def multi():
         os.makedirs(save_dir)
 
     # check if sliceplots exist for fields specified
-    fields = [['density'],['velocity_z'],['ram_pressure'],['temperature']]
+    fields = [['density'],['velocity_z']]
     for i in fields:
         field_dir = directory + i[0] + "_y/"
         fields[fields.index(i)].append(field_dir)
@@ -36,12 +36,12 @@ def multi():
             slc_path = field[1] + pfx + num + sfx + field[0] + ".png"
             im.append(Image.open(slc_path))
 
-        vert = 279
-        horz = 1085
+        vert = 265
+        horz = 1060
 
-        new_im = Image.new("RGB", (1085,1116))
+        new_im = Image.new("RGB", (1060,530))
 
-        for i in range(4):
+        for i in range(2):
             new_im.paste(im[i], (0,i*vert))
 
         new_im.save(save_dir + "multi_" + num + ".png")
