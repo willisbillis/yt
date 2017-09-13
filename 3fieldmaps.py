@@ -68,6 +68,10 @@ def rescale(plot,field):
         plot.set_zlim("met_O",0.0001,1.0)
     if field == "cloud_velz":
         plot.set_zlim("cloud_velz",-1e8,1e7)
+    if field == "velocity_Z":
+        plot.set_log("velocity_Z",False)
+    if field == "mach_speed":
+        plot.set_log("mach_speed",False)
     #if field == "density":
     #    plot.set_zlim("density",1e-27,1e-22)
     return plot
@@ -75,10 +79,11 @@ def runfile(loadfile,field,axis):
     # runs a single file
     print "runfile"
     narf = ((loadfile.domain_right_edge-loadfile.domain_left_edge)/2.0)+loadfile.domain_left_edge
-    slc = yt.SlicePlot(loadfile,axis,[field],origin = "native",center = [0,0,narf[2]])
+    slc = yt.SlicePlot(loadfile,axis,[field],origin = "native",center = [0,0,narf[2]],fontsize=14)
     rescale(slc,field)
     if yt.is_root():
-        slc.annotate_timestamp(time_format="t = {time:.0f} {units}")   # You can customize your slices here (ex. add contours,etc.)
+        slc.annotate_timestamp(time_format="t = {time:.0f} {units}",draw_inset_box=True,corner='upper_left')
+        # You can customize your slices here (ex. add contours,etc.)
         slc.save()
 
 def save_data(ds,field,axis,tseries):
@@ -123,7 +128,7 @@ def run_set(config_fl):
         print "AXIS: " + axis
     t1 = float(time.time())
     if yt.is_root():
-        time_fix(t1 - t0)
+        timer(t1 - t0)
 ################################################################################
 # Running the program
 
@@ -157,7 +162,7 @@ def main_sing(config_fl):
         print "AXIS: " + axis
         t1 = float(time.time())
         print "COMPLETE (2.2)"
-        time_fix(t1 - t0)
+        timer(t1 - t0)
         print "OUTPUT FILE NAME: " + fl_nm + "_Slice_{1}_{0}.png".format(field,axis)
 
 while True:
@@ -166,11 +171,8 @@ while True:
     config.close()
     if yt.is_root():
         print "FULL: " + str(full)
-    full_list = ["y","n"]
-    if full not in full_list:
+    if full not in ["y","n"]:
         time.sleep(10)
-        if yt.is_root():
-            print "waiting"
     elif full == "y":
         parameters = open_config()
         main_set(parameters)
@@ -181,4 +183,3 @@ while True:
         main_sing(parameters)
         clear_config()
         break
-
