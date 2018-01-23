@@ -1,3 +1,5 @@
+# Written by Elliott Williams https://github.com/willisbillis/yt
+
 import yt,time,multiprocessing,math
 import numpy as np
 from multiprocessing import Pool, Process, Array
