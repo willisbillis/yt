@@ -1,3 +1,5 @@
+# Written by Elliott Williams https://github.com/willisbillis/yt
+
 from __future__ import division
 import yt, os, sys, time, threading
 from yt import YTQuantity
