@@ -3,9 +3,8 @@ import yt, os, sys, time, threading
 from yt import YTQuantity
 from yt.units import dimensions
 from setup import *
-from vel_disp import *
 
-yt.enable_parallelism()
+#yt.enable_parallelism()
 
 # This is an interactive UI for loading in data sets to yt to making velocity
 # dispersion plots. It takes raw_inputs from the user to determine the file(s)
@@ -17,8 +16,8 @@ yt.enable_parallelism()
 quick = 150
 pro = 750
 dpi_level = quick
-# Turn on/off FWHM (assumes vel disp is Gaussian - which is valid)
-FWHM == False
+# Turn on/off FWHM (assumes vel disp along LOS is Gaussian, which is valid)
+FWHM = False
 ################################################################################
 def open_config():
     # assigns variable to config file and returns open file
@@ -40,7 +39,7 @@ def input():
     print "input"
     config = open("config.txt", "w")
     print "OPEN (1)"
-    full = raw_input("run all files? (y/n): ")
+    full = raw_input("run all files? (y/N): ")
     fl_nm = raw_input("enter filename: ").strip()
     level = raw_input("resolution level: ").strip()
     if full != "y":
@@ -70,6 +69,19 @@ def save_data(tseries,level):
             os.rename(source_file, destination)
     print "Data saved to: {0}/vel_disp_lvl_{1}".format(os.getcwd(),level)
 
+def save_data_xy(tseries,level):
+    # saves plots to separate directory inside working directory
+    directory = os.getcwd() + "/vel_xydisp_lvl_{0}".format(level)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    for x in xrange(0,len(tseries)):
+        source_file = os.getcwd() + "/velocity_xydisp_%04d_lvl_{0}.png".format(level) % x
+        destination = os.getcwd() + "/vel_xydisp_lvl_{0}/velocity_xydisp_%04d_lvl_{0}.png".format(level) % x
+        if os.path.exists(source_file):
+            print "moving %s..." % source_file
+            os.rename(source_file, destination)
+    print "Data saved to: {0}/vel_xydisp_lvl_{1}".format(os.getcwd(),level)
+
 def run_set(config_fl):
     #run all files
     print "run_set"
@@ -87,7 +99,10 @@ def run_set(config_fl):
         runfile(ds,level)
 
     if yt.is_root():
-        save_data(ts,level)
+        if xyview == "n":
+            save_data(ts,level)
+        elif xyview == "y":
+            save_data_xy(ts,level)
         print "FILES RUN: " + str(len(ts))
     t1 = float(time.time())
     if yt.is_root():
@@ -99,6 +114,14 @@ def run_set(config_fl):
 #input function is run serially to only write parameters to config file once
 if yt.is_root():
     input()
+
+xyview = raw_input("view from xy-plane? (y/N): ")
+if xyview != "y":
+    xyview = "n"
+if xyview == "n":
+    from vel_disp import *
+elif xyview == "y":
+    from vel_disp_xy import *    
 
 def main_set(config_fl):
     if yt.is_root():
