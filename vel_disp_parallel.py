@@ -108,7 +108,7 @@ def run_set(config_fl):
         print "FILES RUN: " + str(len(ts))
     t1 = float(time.time())
     if yt.is_root():
-        timer(t1 - t0)
+        print timer(t1 - t0)
 
 ################################################################################
 #Running the program
@@ -123,7 +123,7 @@ if xyview != "y":
 if xyview == "n":
     from vel_disp import *
 elif xyview == "y":
-    from vel_disp_xy import *    
+    from vel_disp_xy import *
 
 def main_set(config_fl):
     if yt.is_root():
@@ -144,7 +144,7 @@ def main_sing(config_fl):
         main(da,domain,fl_nm,level)
         t1 = float(time.time())
         print "COMPLETE (2.2)"
-        timer(t1 - t0)
+        print timer(t1 - t0)
 
 while True:
     config = open("config.txt","r")

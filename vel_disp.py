@@ -1,9 +1,14 @@
 # Written by Elliott Williams https://github.com/willisbillis/yt
 
-import yt,time,multiprocessing,math
+import yt,time,multiprocessing,matplotlib,sys
 import numpy as np
-from multiprocessing import Pool, Process, Array
-from yt.units import kilometer,second
+#from multiprocessing import Pool, Process, Array
+from math import pi,sqrt,e
+from scipy.integrate import quad
+import numpy as np
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from lmfit.models import GaussianModel
 
 def timer(t):
     # outputs time in more readable units
@@ -22,15 +27,23 @@ def timer(t):
 # Level 2 - 43 sec
 # Level 3 - 5.6 min
 ################################################################################
-# set resolution level (dpi)
+# set resolution level of png (dpi)
 quick = 150
-pro = 750
+pro = 1250
 dpi_level = pro
 # Turn on/off FWHM (assumes vel disp along LOS is Gaussian, which is valid)
 FWHM = False
 # Ionization cutoff temp for H
-HI_min = 6000
-HI_max = 20000
+HI_min = 0
+HI_max = 10000
+# Parameters for velocity dispersion calculation
+num_bins = 200    # affects line resolution. more bins >> higher resolution
+vel_min = -100    # km/s
+vel_max = 100     # km/s
+bins = np.linspace(vel_min,vel_max,num=num_bins,retstep=True)
+################################################################################
+def gaussian_curve(x,mu,sigma,A):
+    return (A/(sigma*sqrt(2*pi)))*e**(-0.5*((x-mu)/sigma)**2)
 
 def fixed_res_array(ds,level):
     all_data_level_x = ds.covering_grid(level=level,left_edge=ds.domain_left_edge,dims=ds.domain_dimensions*2**level)
@@ -41,23 +54,47 @@ def fixed_res_array(ds,level):
     for x in xrange(0,ds.domain_dimensions[0]*2**level):
         vbin = []
         for z in xrange(0,ds.domain_dimensions[2]*2**level):
-            v = []
-            m = []
+            weights = np.array([])
+            weights = np.resize(weights,(num_bins-1,1))
             for y in xrange(0,ds.domain_dimensions[1]*2**level):
                 temp = all_data_level_x["temperature"][x,y,z]
                 if temp <= HI_max and temp >= HI_min:
-                    #print [x,y,z]
-                    vel = all_data_level_x["velocity_y"][x,y,z].in_units("km/s")
-                    mass = all_data_level_x["cell_mass"][x,y,z]
-                    tb = math.sqrt(2*k*temp/m_avg)/1000*kilometer/second
-                    v.append(vel+tb)
-                    m.append(mass)
+                    # velocity dispersion calculation
+                    weights = np.array([])
+                    weights = np.resize(weights,(num_bins-1,1))
+                    vel = float(all_data_level_x["velocity_y"][x,y,z].in_units("km/s"))
+                    mass = float(m_avg*all_data_level_x["H_nuclei_density"][x,y,z]*all_data_level_x["cell_volume"][x,y,z])
+                    tb = float(sqrt(2*k*temp/m_avg)/1000)
 
+                    mu = vel
+                    sigma = tb
+                    A = mass
 
-            if sum(m) == 0: # all cells on sightline have T outside HI_min < T < HI_max
+                    for n in xrange(0,len(bins[0])-1):
+                        I = quad(gaussian_curve, bins[0][n], bins[0][n+1],args=(mu,sigma,A))
+                        weights[n] += I[0]
+                    if (A-sum(weights))/A > 0.05:
+                        print " Values out of range. Expand velocity limits."
+                        sys.exit()
+                    #fig = plt.hist(bins[0][:-1],bins=bins[0],weights=weights.flatten())
+
+            if sum(weights) == 0: # all cells on sightline have T outside HI_min < T < HI_max
                 sigma = 0
-            elif sum(m) != 0:
-                sigma = np.sqrt(np.sum((v - np.average(v,weights=m))**2) / np.size(v))
+            elif sum(weights) != 0:
+                mod = GaussianModel()
+                pars = mod.guess(weights.flatten(), x=bins[0][:-1])
+                out  = mod.fit(weights.flatten(), pars, x=bins[0][:-1])
+                result = np.array(out.params)
+                avg_vel = result[1]
+                diff_sum = 0
+                for a,b in zip(bins[0][:-1],weights.flatten()):
+                    diff_sum += b*(a-avg_vel)**2
+                sigma = sqrt(diff_sum/sum(weights))
+
+                #plt.xlabel("Velocity")
+                #plt.ylabel("Frequency")
+                #plt.savefig("hist_{0}_{1}.png".format(x,z))
+                #plt.cla()
             if FWHM == True:
                 vbin.append(2*sqrt(2*ln(2))*sigma)
             elif FWHM == False:
@@ -82,6 +119,7 @@ def fixed_res_array(ds,level):
         print "At MS distance of %d kpc, beam width is %.1f arcmin." % (MS_dist,beam_width)
     else:
         print "At MS distance of %d kpc, beam width is %.1f arcsec." % (MS_dist,beam_width)
+    print "Velocity resolution: {0:.1f} km/s".format(bins[1])
     return da,domain
 
 def main(data_array,domain_array,fl_nm,level):
@@ -89,7 +127,7 @@ def main(data_array,domain_array,fl_nm,level):
     mpl.use('Agg')
     import matplotlib.pyplot as plt
     mpl.rcParams['font.size'] = 10
-    im = plt.imshow(data_array,origin = "lower",aspect = "equal",extent=domain_array,cmap="jet")
+    im = plt.imshow(data_array,origin = "lower",aspect = "equal",extent=domain_array,cmap="jet",interpolation='none')
     plt.xlabel("z (kpc)")
     plt.ylabel("x (kpc)")
     cbar = plt.colorbar(pad=0,shrink=0.2275,aspect=6)
