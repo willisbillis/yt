@@ -25,7 +25,7 @@ def timer(t):
 # set resolution level (dpi)
 quick = 150
 pro = 750
-dpi_level = quick
+dpi_level = pro
 # Turn on/off FWHM (assumes vel disp along LOS is Gaussian, which is valid)
 FWHM = False
 # Ionization cutoff temp for H
