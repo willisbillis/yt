@@ -23,7 +23,7 @@ Interactive_Mode = False
 fitsfile = "gass_78_-48_1522043360.fits"
 disp_output_fl = "fits_vel_disp.png"
 cent_output_fl = "fits_disp_cents.png"
-fig_quality = 750
+fig_quality = 750 # dpi
 
 ## Parallel processing parameters
 chunksize = 3 # best if a multiple of processes for efficiency
