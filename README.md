@@ -1,24 +1,18 @@
-# Running in Parallel
+# Overview
 
-The following scripts may be run serially or in parallel: 
+In this repository are tools for post-processing and analysis of FLASH data files. Many of these utilize already existing tools from the post-processing software yt (www.yt-project.org), and automate tasks so that you can create density plots for all of your simulation files at once and have them in their own directory, for example. More computationally intensive scripts have been designed to run in parallel for efficiency, so that they can take advantage of the other cores in the machine and drastically increase the speed of completion.
 
-    3fieldmaps.py
-    1DProfileplot.py
-    vel_disp_parallel.py
+**3fieldmaps.py**
 
-Running in parallel uses the mpi4py module (which must be installed if it is not already).
+This script creates yt slice plots for any specified field. It is run from inside the directory of the FLASH files you wish to process with the command
 
-This can be done by running: 
+    python 3fieldmaps.py
+    
+and will give prompts so that you can customize its use. For multiple fields, separate the fields by spaces on the command line. To create higher resolution plots (for a poster or talk), set dpi_level to pro at the beginning of 3fieldmaps.py.
 
-    pip install mpi4py
+**vel_disp.py**
 
-To run a script in parallel, run 
-
-    mpiexec -n 4 python script.py
-
-where 4 is the number of processors to run on and script.py is the script to run.
-
-More info about Running yt in Parallel can be found here: http://yt-project.org/doc/analyzing/parallel_computation.html#parallel-computation
+This script 
 
 # Issues
 
