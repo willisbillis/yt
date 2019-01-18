@@ -12,7 +12,13 @@ and will give prompts so that you can customize its use. For multiple fields, se
 
 **vel_disp.py**
 
-This script 
+This script creates velocity dispersion maps of FLASH simulation files using yt. Run it from inside the directory of the files you want to process with the command
+
+    python vel_disp.py
+    
+There will be prompts you answer at the command line to The time it takes to create the maps increases rapidly, so start with a low resolution (0,1) and move up to higher (2,3) as you need. There are also settings you can change inside the file (like output file quality, velocity resolution).
+
+**fitsvel_disp.py**
 
 # Issues
 
