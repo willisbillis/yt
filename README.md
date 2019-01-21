@@ -20,7 +20,16 @@ There will be prompts you answer at the command line to The time it takes to cre
 
 **fitsvel_disp.py**
 
+# Requirements
 
+The scripts in this repository have the following dependencies
+
+    numpy==1.15.4
+    matplotlib==2.2.3
+    scipy==1.2.0
+    lmfit==0.9.12
+    multiprocessing==2.6.2.1
+    yt==3.5.0
 
 # Issues
 
