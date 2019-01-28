@@ -30,6 +30,7 @@ The scripts in this repository have the following dependencies
     lmfit==0.9.12
     multiprocessing==2.6.2.1
     yt==3.5.0
+    astropy==2.0.9
 
 # Issues
 
