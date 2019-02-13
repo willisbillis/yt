@@ -31,10 +31,3 @@ The scripts in this repository have the following dependencies
     multiprocessing==2.6.2.1
     yt==3.5.0
     astropy==2.0.9
-
-# Issues
-
-There are a couple of known bugs in 3fieldmaps.py and 1Dprofileplot.py you may run into that are in the process of being fixed now.
-
-**1)**
-If your dataset files are not sequential (ex. 0,50,100,150 Myr), or if the time of the last file is greater than the number of dataset file you are running (ex. 20-100 Myr), not all files will be saved to the subdirectory when running all files.
