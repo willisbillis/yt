@@ -1,7 +1,8 @@
 """
 Create velocity dispersion maps of FLASH simulation data
-
 with the post-processing software yt.
+
+Version == 2.0
 
 Written by Elliott Williams https://github.com/willisbillis/yt-github
 """
@@ -12,22 +13,24 @@ import os
 import glob
 import random
 from math import pi, sqrt, e, log
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, Manager
 from scipy.integrate import quad
 from lmfit.models import GaussianModel
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import yt
+import h5py
 import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.pyplot as plt
+plt.switch_backend('agg')
 
 ################################################################################
 ## CONSTANTS ##
-INTERACTIVE_MODE = True # set constants here that you don't want to specify
+INTERACTIVE_MODE = False # set constants here that you don't want to specify
                         # from the command line each time
 # set usr_constants variables if interactive mode is off
-FULL = "y"
-FL_NM = ""
+FULL = "n"
+FL_NM = "dual_4r100_hdf5_plt_cnt_0000"
 LEVEL = 0
 XYVIEW = "n"
 USER_CONSTANTS = [INTERACTIVE_MODE, FULL, FL_NM, LEVEL, XYVIEW]
@@ -39,7 +42,7 @@ PRO = 1250
 DPI_LEVEL = QUICK        # resolution level of output png file (dots per inch)
 
 ## Parallel processing parameters
-CHUNKSIZE = 3            # best if a multiple of processes for efficiency
+CHUNKSIZE = 1            # best if a multiple of processes for efficiency
 MAXTASKS = CHUNKSIZE * 5 # max tasks per child before printing results and
                          #      starting new child process
 
@@ -56,6 +59,10 @@ NUM_BINS = 200           # Bins in each emission line. More bins >>
 VEL_MIN = -100           # (km/s)
 VEL_MAX = 100            # (km/s)
 BINS = np.linspace(VEL_MIN, VEL_MAX, num=NUM_BINS, retstep=True)
+
+## Physics constants
+K_BOLTZ = 1.380649e-23   # J/K Boltzmann constant
+M_AVG = 1.6737236e-27    # kg (mass of hydrogen atom)
 ################################################################################
 ## FUNCTIONS ##
 def inputs(usr_constants):
@@ -67,7 +74,7 @@ def inputs(usr_constants):
 
     if int_mode is True:
         full = raw_input("run all files? (y/N): ")
-        fl_nm = os.getcwd() +  "/" + raw_input("enter a filename: ").strip()
+        fl_nm = raw_input("enter a filename: ").strip()
         level = int(raw_input("resolution level (0-4): ").strip())
         xyview = raw_input("XY view? (y/N): ")
     else:
@@ -82,7 +89,7 @@ def inputs(usr_constants):
     else:
         xyz_order = ['x', 'z', 'y']
     if full == "y":
-        file_list = glob.glob(fl_nm[0:-4] + "*")
+        file_list = glob.glob(fl_nm[0:-4] + "*[0-9]")
     else:
         file_list = [fl_nm]
 
@@ -105,109 +112,125 @@ def gaussian_curve(x_val, mean_mu, sigma, amp):
     """
     return (amp/(sigma*sqrt(2*pi)))*e**(-0.5*((x_val-mean_mu)/sigma)**2)
 
-def fixed_res_array(file_name, level, order):
+def create_fixed_res_array(file_name, level, order):
     """
-    Create a 3D grid with equal sized cells from the input file and go through
-    each line of sight (LOS) and calculate velocity dispersion. Puts dispersion
-    values in 2D numpy map.
+    Create the 3D grid with equal sized cells from the input yt file, and
+    get measurements/resolution for the 3D grid domain. Also, arrange the
+    transformation matrix and LOS velocity so that the velocity dispersion
+    calculation is done in the correct dimension for the orientation requested.
     """
-    # normal == x,z,y (0,2,1)
-    # xy == y,x,z (1,0,2)
+    # normal (xz) view == x,z,y (0,2,1)
+    # xy view == y,x,z (1,0,2)
     t_coord1 = order.index('x')
     t_coord2 = order.index('y')
     t_coord3 = order.index('z')
     trans_matrix = [t_coord1, t_coord2, t_coord3]
-
     los_velocity = "velocity_" + order[2]
+
     ytcube = yt.load(file_name)
-    all_data_level_x = ytcube.covering_grid(level=level, left_edge=ytcube.domain_left_edge,
-                                            dims=ytcube.domain_dimensions*2**level)
-    disp_array = []
     ytcube.periodicity = (True, True, True)
-    k = 1.380649e-23 # J/K
-    m_avg = 1.6737236e-27 # kg (mass of hydrogen atom)
-    for q_coord1 in xrange(all_data_level_x.ActiveDimensions[t_coord1]):
-        vbin = []
-        for q_coord2 in xrange(all_data_level_x.ActiveDimensions[t_coord2]):
-            weights = np.array([])
-            weights = np.resize(weights, (NUM_BINS-1, 1))
-            for q_coord3 in xrange(all_data_level_x.ActiveDimensions[t_coord3]):
-                coords = tuple([q_coord1, q_coord2, q_coord3][i] for i in trans_matrix)
-                temp = float(all_data_level_x["temperature"][coords])
-                if temp <= HI_MAX and temp >= HI_MIN:
-                    # velocity dispersion calculation
-                    cell_weights = np.array([])
-                    cell_weights = np.resize(weights, (NUM_BINS-1, 1))
-                    vel = float(all_data_level_x[los_velocity][coords].in_units("km/s"))
-                    mass = float(m_avg * all_data_level_x["H_nuclei_density"][coords]
-                                 * all_data_level_x["cell_volume"][coords])
-                    thermal_broadening = float(sqrt(2 * k * temp / m_avg) / 1000)
+    fixed_res_datacube = ytcube.covering_grid(level=level, left_edge=ytcube.domain_left_edge,
+                                              dims=ytcube.domain_dimensions*2**level)
 
-                    gaussian_mu = vel
-                    gaussian_sigma = thermal_broadening
-                    gaussian_amp = mass
-
-                    for los_cell in xrange(0, len(BINS[0])-1):
-                        emission_integral = quad(gaussian_curve, BINS[0][los_cell],
-                                                 BINS[0][los_cell+1],
-                                                 args=(gaussian_mu, gaussian_sigma, gaussian_amp))
-                        cell_weights[los_cell] += emission_integral[0]
-                        weights[los_cell] += emission_integral[0]
-                    if (gaussian_amp-sum(weights))/gaussian_amp > 0.05:
-                        if vel < VEL_MIN:
-                            print " Values out of range. Lower velocity limits.\n"\
-                                  " Out of range vel: {!s} km/s".format(vel)
-                        if vel > VEL_MAX:
-                            print " Values out of range. Raise velocity limits.\n"\
-                                  " Out of range vel: {!s} km/s".format(vel)
-                        sys.exit()
-
-            if sum(weights) == 0: # if so, all cells on sightline have T outside HI_min < T < HI_max
-                linefit_sigma = 0
-            elif sum(weights) != 0:
-                mod = GaussianModel()
-                pars = mod.guess(weights.flatten(), x=BINS[0][:-1])
-                out = mod.fit(weights.flatten(), pars, x=BINS[0][:-1])
-                result = np.array(out.params)
-                avg_vel = result[1]
-                diff_sum = 0
-                for vel_i, weight_i in zip(BINS[0][:-1], weights.flatten()):
-                    diff_sum += weight_i * (vel_i-avg_vel)**2
-                linefit_sigma = sqrt(diff_sum/sum(weights))
-
-            if FWHM is True:
-                vbin.append(2*sqrt(2*log(2))*linefit_sigma)
-            elif FWHM is False:
-                vbin.append(linefit_sigma)
-        disp_array.append(vbin)
-        prog = (q_coord1+1)*100/float(all_data_level_x.ActiveDimensions[t_coord1])
-        if prog % 5 < 100/float(all_data_level_x.ActiveDimensions[t_coord1]):
-            print "{0:.1f} %".format(prog)
-
-    da_npgrid = np.array(disp_array)
-    print "fixed resolution array created"
     left = ytcube.domain_left_edge.in_units("kpc")[t_coord2]
     right = ytcube.domain_right_edge.in_units("kpc")[t_coord2]
     top = ytcube.domain_left_edge.in_units("kpc")[t_coord1]
     bottom = ytcube.domain_right_edge.in_units("kpc")[t_coord1]
     domain = [left, right, top, bottom]
-    dx_resolution = all_data_level_x["dx"]
-    return da_npgrid, domain, dx_resolution
+    dx_resolution = float(fixed_res_datacube["dx"][0, 0, 0])
+
+    return fixed_res_datacube, trans_matrix, los_velocity, domain, dx_resolution
+
+def vel_disp_row(q_coord1):
+    """
+    Calculate velocity dispersion for every line of sight (LOS) in one slab
+    of the fixed_res_datacube.
+    """
+    global NUM_BINS, M_AVG, HI_MAX, HI_MIN, K_BOLTZ, VEL_MIN, VEL_MAX, BINS, FWHM
+
+    global COMPLETED_ROWS, q2_dims, q3_dims, shared_datacube_vel, shared_datacube_cellvol, \
+           shared_datacube_Hdens, shared_datacube_temp
+
+    velocity = np.array(shared_datacube_vel)
+    cell_volume = np.array(shared_datacube_cellvol)
+    H_nuclei_density = np.array(shared_datacube_Hdens)
+    temperature = np.array(shared_datacube_temp)
+
+    disp_row = []
+    for q_coord2 in xrange(q2_dims.value):
+        weights = np.array([])
+        weights = np.resize(weights, (NUM_BINS-1, 1))
+        for q_coord3 in xrange(q3_dims.value):
+            idx_coord1 = [q_coord1, q_coord2, q_coord3][trans_matrix[0]]
+            idx_coord2 = [q_coord1, q_coord2, q_coord3][trans_matrix[1]]
+            idx_coord3 = [q_coord1, q_coord2, q_coord3][trans_matrix[2]]
+            temp = float(temperature[idx_coord1][idx_coord2][idx_coord3])
+            if temp <= HI_MAX and temp >= HI_MIN:
+                # velocity dispersion calculation
+                cell_weights = np.array([])
+                cell_weights = np.resize(weights, (NUM_BINS-1, 1))
+                vel = float(velocity[idx_coord1][idx_coord2][idx_coord3])
+                mass = float(M_AVG * H_nuclei_density[idx_coord1][idx_coord2][idx_coord3]
+                             * cell_volume[idx_coord1][idx_coord2][idx_coord3])
+                thermal_broadening = float(sqrt(2 * K_BOLTZ * temp / M_AVG) / 1000)
+                gaussian_mu = vel
+                gaussian_sigma = thermal_broadening
+                gaussian_amp = mass
+
+                for los_cell in xrange(0, len(BINS[0])-1):
+                    emission_integral = quad(gaussian_curve, BINS[0][los_cell],
+                                             BINS[0][los_cell+1],
+                                             args=(gaussian_mu, gaussian_sigma, gaussian_amp))
+                    cell_weights[los_cell] += emission_integral[0]
+                    weights[los_cell] += emission_integral[0]
+                if (gaussian_amp-sum(weights))/gaussian_amp > 0.05:
+                    if vel < VEL_MIN:
+                        print " Values out of range. Lower velocity limits.\n"\
+                              " Out of range vel: {!s} km/s".format(vel)
+                    if vel > VEL_MAX:
+                        print " Values out of range. Raise velocity limits.\n"\
+                              " Out of range vel: {!s} km/s".format(vel)
+                    sys.exit()
+        if sum(weights) == 0: # if so, all cells on sightline have T outside HI_min < T < HI_max
+            linefit_sigma = 0
+        elif sum(weights) != 0:
+            mod = GaussianModel()
+            pars = mod.guess(weights.flatten(), x=BINS[0][:-1])
+            out = mod.fit(weights.flatten(), pars, x=BINS[0][:-1])
+            result = np.array(out.params)
+            avg_vel = result[1]
+            diff_sum = 0
+            for vel_i, weight_i in zip(BINS[0][:-1], weights.flatten()):
+                diff_sum += weight_i * (vel_i-avg_vel)**2
+            linefit_sigma = sqrt(diff_sum/sum(weights))
+
+        if FWHM is True:
+            disp_row.append(2*sqrt(2*log(2))*linefit_sigma)
+        elif FWHM is False:
+            disp_row.append(linefit_sigma)
+
+    COMPLETED_ROWS.value += 1
+    progress = COMPLETED_ROWS.value*100.0/NUM_ROWS
+    if progress % 5 < 100.0/NUM_ROWS:
+        print "{0:.1f} % complete of data map".format(progress)
+
+    shared_data_map[q_coord1] = disp_row
+    return
 
 def ang_resolution(dist, cell_width):
     """
     Calulate simulated angular resolution from width of cell in map and distance
-    to target.
+    to target. This assumes cell width has units cm and dist has units kpc.
     """
-    beam_width = (cell_width[0, 0, 0]/(dist*3.08568E18))*3600
+    beam_width = (cell_width/(dist*3.08568E18))*3600
     if beam_width >= 3600:
         beam_width = beam_width/3600
-        print "At distance of {} kpc, beam width is {.1f} deg.".format(dist, beam_width)
+        print "At distance of {} kpc, beam width is {:.1f} deg.".format(dist, beam_width)
     elif beam_width >= 60:
         beam_width = beam_width/60
-        print "At distance of {} kpc, beam width is {.1f} arcmin.".format(dist, beam_width)
+        print "At distance of {} kpc, beam width is {:.1f} arcmin.".format(dist, beam_width)
     else:
-        print "At distance of {} kpc, beam width is {.1f} arcsec.".format(dist, beam_width)
+        print "At distance of {} kpc, beam width is {:.1f} arcsec.".format(dist, beam_width)
     print "Velocity resolution: {0:.1f} km/s".format(BINS[1])
 
 def plotdata(data_array, domain_array, fl_nm, level, order):
@@ -228,8 +251,8 @@ def plotdata(data_array, domain_array, fl_nm, level, order):
     cbar.ax.tick_params(labelsize=8)
     cbar.set_label("Velocity Dispersion (km/s)", size=7)
 
-    print "plot created. Saving figure..."
-    fig_nm = 'velocity_disp_{0}_lvl_{1}.png'.format(str(fl_nm)[-4:], level)
+    print "Data map created. Saving figure..."
+    fig_nm = 'velocity_disp{0}_{1}_lvl_{2}.png'.format(''.join(order[:2]), str(fl_nm)[-4:], level)
     plt.savefig(fig_nm, dpi=DPI_LEVEL, bbox_inches='tight')
     plt.close()
     print "File saved as: " + fig_nm
@@ -239,42 +262,71 @@ def save_data(fl_list, level, order):
     """
     Save all created files to a separate directory inside the working directory.
     """
-    directory = os.getcwd() + "/vel_disp_lvl_{0}".format(level)
+    view = ''.join(order[:2])
+    directory = os.getcwd() + "/vel_disp{0}_lvl_{1}".format(view, level)
     if not os.path.exists(directory):
         os.makedirs(directory)
     for fl_nm in fl_list:
         working_dir = os.getcwd()
-        source_file = working_dir + "/velocity_{0}disp_{1}_lvl_{2}.png".format(''.join(order[:1]),
-                                                                               fl_nm[-4:], level)
-        destination = working_dir + "/vel_{0}disp_lvl_{2}/" + \
-                      "velocity_{0}disp_{1}_lvl_{2}.png".format(''.join(order[:1]),
-                                                                fl_nm[-4:], level)
+        source_file = working_dir + \
+                      "/velocity_disp{0}_{1}_lvl_{2}.png".format(view, fl_nm[-4:], level)
+        destination = working_dir + \
+                      "/vel_disp{0}_lvl_{2}/velocity_disp{0}_{1}_lvl_{2}.png".format(view, fl_nm[-4:], level)
         if os.path.exists(source_file):
             print "moving {}...".format(source_file)
             os.rename(source_file, destination)
-    print "Data saved to: {1}/vel_{0}disp_lvl_{2}".format(''.join(order[:1]), os.getcwd(), level)
+    print "Data saved to: {0}/vel_disp{1}_lvl_{2}".format(os.getcwd(), view, level)
 
-def main((fl_nm, level, xyz_order)):
-    """
-    Main execution function. Create map from data cube, calculate angular
-    resolution, and plot data.
-    """
-    data_map, domain, dx_res = fixed_res_array(fl_nm, level, xyz_order)
-    ang_resolution(TARGET_DIST, dx_res)
-    plotdata(data_map, domain, fl_nm, level, xyz_order)
-    return
 ################################################################################
 ## PROCESSING ##
 if __name__ == "__main__":
     FILE_LIST, LEVEL, XYZ_ORDER = inputs(USER_CONSTANTS)
-    ARG_LIST = zip(FILE_LIST, [LEVEL]*len(FILE_LIST), [XYZ_ORDER]*len(FILE_LIST))
+    CPU_CORES = cpu_count() - 1
 
     START_TIME = time.time()
-    CPU_CORES = cpu_count()
-    POOL = Pool(processes=(CPU_CORES-1), maxtasksperchild=MAXTASKS)
-    RESULT = POOL.map(main, ARG_LIST, chunksize=CHUNKSIZE)
-    POOL.close()
-    POOL.join()
+    for fl in FILE_LIST:
+        # Create fixed resolution data cube
+        datacube, t_matrix, los_vel, domain, cell_res = create_fixed_res_array(fl, LEVEL, XYZ_ORDER)
+
+        # Make necessary values and datasets available to all of the child processes
+        # so that each dataset doesn't need to be loaded in every time a calculation
+        # is done.
+        manager = Manager()
+
+        COMPLETED_ROWS = manager.Value('i', 0)
+        q2_dims = manager.Value('i', datacube.ActiveDimensions[t_matrix[1]])
+        q3_dims = manager.Value('i', datacube.ActiveDimensions[t_matrix[2]])
+        trans_matrix = manager.list(t_matrix)
+
+        shared_datacube_vel = manager.list(datacube[los_vel].in_units('km/s'))
+        shared_datacube_cellvol = manager.list(datacube['cell_volume'])
+        shared_datacube_Hdens = manager.list(datacube['H_nuclei_density'])
+        shared_datacube_temp = manager.list(datacube['temperature'])
+
+        # Create argument list to be iterated through by child workers
+        NUM_ROWS = int(datacube.ActiveDimensions[t_matrix[0]])
+        arg_list = xrange(NUM_ROWS)
+
+        # Send jobs out to child workers
+        shared_data_map = manager.list(np.zeros(NUM_ROWS))
+        POOL = Pool(processes=(CPU_CORES), maxtasksperchild=MAXTASKS)
+        POOL.map_async(vel_disp_row, arg_list, chunksize=CHUNKSIZE)
+        POOL.close()
+        POOL.join()
+
+        # Sort output dispersion data into map and save to h5 file
+        shared_data_map = np.array(shared_data_map)
+
+        if os.path.isfile('disp_data_'+fl+'.h5'):
+            h5py.File('disp_data_'+fl+'.h5', 'w').close() # clear file if exists
+        with h5py.File('disp_data_'+fl+'.h5') as h5_store:
+            h5_store.create_dataset('disp_map', data=shared_data_map)
+
+        # Create plot of velocity disperion map
+        plotdata(shared_data_map, domain, fl, LEVEL, XYZ_ORDER)
+        ang_resolution(TARGET_DIST, cell_res)
+
+
     save_data(FILE_LIST, LEVEL, XYZ_ORDER)
     STOP_TIME = time.time()
     print timer(STOP_TIME-START_TIME)
