@@ -3,7 +3,9 @@ Create yt SlicePlots of FLASH simulation data files. User specifies file(s),
 field(s), and axis either interactively on command line or in code below. If
 multiple cores are available, job will be split amongst them to increase efficiency.
 
-Written by Elliott Williams https://github.com/willisbillis/yt-github
+Written by Elliott Williams https://github.com/willisbillis/yt-
+
+Version==2.0
 """
 
 import os
