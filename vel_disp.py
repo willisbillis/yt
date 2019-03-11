@@ -2,7 +2,7 @@
 Create velocity dispersion maps of FLASH simulation data
 with the post-processing software yt.
 
-Version == 2.1
+Version == 2.1.1
 
 Written by Elliott Williams https://github.com/willisbillis/yt-github
 """
@@ -28,13 +28,13 @@ plt.switch_backend('agg')
 
 ################################################################################
 ## CONSTANTS ##
-INTERACTIVE_MODE = False # set constants here that you don't want to specify
+INTERACTIVE_MODE = True # set constants here that you don't want to specify
                         # from the command line each time
-LOGGING = True          # Turn on/off logging for parallel processing
+LOGGING = False          # Turn on/off logging for parallel processing
 # set usr_constants variables if interactive mode is off
 FULL = "n"
-FL_NM = "dual_4r100_hdf5_plt_cnt_0000"
-LEVEL = 2
+FL_NM = "IVC_Fall003Xv70Zv70Z10NRH43hdf5_plt_cnt_0012"
+LEVEL = 1
 XYVIEW = "n"
 USER_CONSTANTS = [INTERACTIVE_MODE, FULL, FL_NM, LEVEL, XYVIEW]
 #############
@@ -149,33 +149,34 @@ def vel_disp_row(q_coord1):
     """
     global NUM_BINS, M_AVG, HI_MAX, HI_MIN, K_BOLTZ, VEL_MIN, VEL_MAX, BINS, FWHM
 
-    global shared_dict
-
-    temperature = np.frombuffer(shared_dict["temp"]).reshape(shared_dict["cube_dims"])
-    velocity = np.frombuffer(shared_dict["velocity"]).reshape(shared_dict["cube_dims"])
-    H_nuclei_density = np.frombuffer(shared_dict["Hdens"]).reshape(shared_dict["cube_dims"])
-    cell_volume = np.frombuffer(shared_dict["cellvol"]).reshape(shared_dict["cube_dims"])
+    global COMPLETED_ROWS, shared_dict
 
     q2_dims = shared_dict["q2_dims"]
     q3_dims = shared_dict["q3_dims"]
     trans_matrix = shared_dict["trans_matrix"]
+
+    temperature = np.frombuffer(shared_dict["temp"]).reshape(shared_dict["cube_dims"])
+    temperature = temperature.transpose(trans_matrix)[q_coord1, :, :]
+    velocity = np.frombuffer(shared_dict["velocity"]).reshape(shared_dict["cube_dims"])
+    velocity = velocity.transpose(trans_matrix)[q_coord1, :, :]
+    H_nuclei_density = np.frombuffer(shared_dict["Hdens"]).reshape(shared_dict["cube_dims"])
+    H_nuclei_density = H_nuclei_density.transpose(trans_matrix)[q_coord1, :, :]
+    cell_volume = np.frombuffer(shared_dict["cellvol"]).reshape(shared_dict["cube_dims"])
+    cell_volume = cell_volume.transpose(trans_matrix)[q_coord1, :, :]
 
     disp_row = []
     for q_coord2 in xrange(q2_dims):
         weights = np.array([])
         weights = np.resize(weights, (NUM_BINS-1, 1))
         for q_coord3 in xrange(q3_dims):
-            idx_coord1 = [q_coord1, q_coord2, q_coord3][trans_matrix[0]]
-            idx_coord2 = [q_coord1, q_coord2, q_coord3][trans_matrix[1]]
-            idx_coord3 = [q_coord1, q_coord2, q_coord3][trans_matrix[2]]
-            temp = float(temperature[idx_coord1][idx_coord2][idx_coord3])
+            temp = float(temperature[q_coord2][q_coord3])
             if temp <= HI_MAX and temp >= HI_MIN:
                 # velocity dispersion calculation
                 cell_weights = np.array([])
                 cell_weights = np.resize(weights, (NUM_BINS-1, 1))
-                vel = float(velocity[idx_coord1][idx_coord2][idx_coord3])
-                mass = float(M_AVG * H_nuclei_density[idx_coord1][idx_coord2][idx_coord3]
-                             * cell_volume[idx_coord1][idx_coord2][idx_coord3])
+                vel = float(velocity[q_coord2][q_coord3])
+                mass = float(M_AVG * H_nuclei_density[q_coord2][q_coord3]
+                             * cell_volume[q_coord2][q_coord3])
                 thermal_broadening = float(sqrt(2 * K_BOLTZ * temp / M_AVG) / 1000)
                 gaussian_mu = vel
                 gaussian_sigma = thermal_broadening
@@ -212,6 +213,11 @@ def vel_disp_row(q_coord1):
             disp_row.append(2*sqrt(2*log(2))*linefit_sigma)
         elif FWHM is False:
             disp_row.append(linefit_sigma)
+
+    COMPLETED_ROWS.value += 1
+    progress = COMPLETED_ROWS.value*100.0/NUM_ROWS
+    if progress % 5 < 100.0/NUM_ROWS:
+        print "{0:.1f} % complete of data map".format(progress)
 
     shared_data_map[q_coord1] = disp_row
     return
@@ -277,14 +283,19 @@ def save_data(fl_list, level, order):
     print "Data saved to: {0}/vel_disp_{1}_lvl_{2}".format(os.getcwd(), view, level)
 
 def init_shared_arr(input_arr):
+    """ Create empty shared 3D array for storing
+        field information from FLASH datacube"""
     input_arr = np.array(input_arr)
-    shared_array_base = Array(ctypes.c_double, input_arr.shape[0]*input_arr.shape[1]*input_arr.shape[2])
+    shared_array_base = Array(ctypes.c_double, input_arr.shape[0] * input_arr.shape[1]
+                              * input_arr.shape[2])
     shared_array = np.ctypeslib.as_array(shared_array_base.get_obj())
     shared_array_np = np.frombuffer(shared_array).reshape(input_arr.shape)
     np.copyto(shared_array_np, input_arr)
     return shared_array
 
 def init_worker(lock, datacube, los_vel, t_matrix):
+    """ Store field information from FLASH datacube in shared 3D arrays and
+        other global variables in shared dictionary"""
     lock.acquire()
     shared_dict["velocity"] = init_shared_arr(datacube[los_vel].in_units('km/s'))
     shared_dict["cellvol"] = init_shared_arr(datacube['cell_volume'])
@@ -296,14 +307,19 @@ def init_worker(lock, datacube, los_vel, t_matrix):
     shared_dict["trans_matrix"] = t_matrix
     lock.release()
 
+def num_cores(num_jobs):
+    """ Determine the number of workers needed in multiprocessing Pool """
+    try:
+        cpu_cores = int(os.environ["PBS_NP"])
+    except KeyError:
+        cpu_cores = cpu_count() - 1
+    if cpu_cores > num_jobs:
+        cpu_cores = num_jobs
+    return cpu_cores
 ################################################################################
 ## PROCESSING ##
 if __name__ == "__main__":
     FILE_LIST, LEVEL, XYZ_ORDER = inputs(USER_CONSTANTS)
-    try:
-        CPU_CORES = int(os.environ["PBS_NP"])
-    except KeyError:
-        CPU_CORES = cpu_count() - 1
 
     if LOGGING:
         LOGGER = log_to_stderr()
@@ -328,22 +344,13 @@ if __name__ == "__main__":
 
         # Send jobs out to workers
         shared_data_map = manager.list(np.zeros(NUM_ROWS))
+        CPU_CORES = num_cores(NUM_ROWS)
         LOCK = Lock()
         POOL = Pool(processes=(CPU_CORES), initializer=init_worker,
                     initargs=(LOCK, DATACUBE, LOS_VEL, T_MATRIX))
-        RESULT = POOL.map_async(vel_disp_row, arg_list, chunksize=CHUNKSIZE)
+        POOL.map_async(vel_disp_row, arg_list, chunksize=CHUNKSIZE)
         POOL.close()
         POOL.join()
-        PROGRESS = 0
-        while True:
-            if RESULT.ready():
-                break
-            REMAINING = RESULT._number_left
-            PROGRESS_NEW = (NUM_ROWS - REMAINING)*100.0/NUM_ROWS
-            if PROGRESS_NEW % 5 < 100.0/NUM_ROWS and PROGRESS_NEW != PROGRESS:
-                print "{0:.1f} % complete of data map".format(PROGRESS_NEW)
-                PROGESS = PROGRESS_NEW
-            time.sleep(0.5)
 
         # Sort output dispersion data into map and save to h5 file
         shared_data_map = np.array(shared_data_map)
