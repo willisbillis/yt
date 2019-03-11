@@ -8,7 +8,7 @@ This script creates yt slice plots for any specified field. It is run from insid
 
     python ytfieldmaps.py
     
-and will give prompts so that you can customize its use. For multiple fields, separate the fields by spaces on the command line. To create higher resolution plots (for a poster or talk), set dpi_level to pro at the beginning of 3fieldmaps.py.
+and will give prompts so that you can customize its use. For multiple fields, separate the fields by spaces on the command line. To create higher resolution plots (for a poster or talk), set dpi_level to pro at the beginning of ytfieldmaps.py.
 
 **vel_disp.py**
 
