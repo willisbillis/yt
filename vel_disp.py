@@ -169,15 +169,12 @@ def vel_disp_row(q_coord1):
         weights = np.array([])
         weights = np.resize(weights, (NUM_BINS-1, 1))
         for q_coord3 in xrange(q3_dims):
-            temp = float(temperature[q_coord2][q_coord3])
+            temp = temperature[q_coord2][q_coord3]
             if temp <= HI_MAX and temp >= HI_MIN:
                 # velocity dispersion calculation
-                cell_weights = np.array([])
-                cell_weights = np.resize(weights, (NUM_BINS-1, 1))
-                vel = float(velocity[q_coord2][q_coord3])
-                mass = float(M_AVG * H_nuclei_density[q_coord2][q_coord3]
-                             * cell_volume[q_coord2][q_coord3])
-                thermal_broadening = float(sqrt(2 * K_BOLTZ * temp / M_AVG) / 1000)
+                vel = velocity[q_coord2][q_coord3]
+                mass = M_AVG*H_nuclei_density[q_coord2][q_coord3]*cell_volume[q_coord2][q_coord3]
+                thermal_broadening = sqrt(2 * K_BOLTZ * temp / M_AVG) / 1000
                 gaussian_mu = vel
                 gaussian_sigma = thermal_broadening
                 gaussian_amp = mass
@@ -186,7 +183,6 @@ def vel_disp_row(q_coord1):
                     emission_integral = quad(gaussian_curve, BINS[0][los_cell],
                                              BINS[0][los_cell+1],
                                              args=(gaussian_mu, gaussian_sigma, gaussian_amp))
-                    cell_weights[los_cell] += emission_integral[0]
                     weights[los_cell] += emission_integral[0]
                 if (gaussian_amp-sum(weights))/gaussian_amp > 0.05:
                     if vel < VEL_MIN:
@@ -363,7 +359,6 @@ if __name__ == "__main__":
         # Create plot of velocity disperion map
         plotdata(shared_data_map, DOMAIN, fl, LEVEL, XYZ_ORDER)
         ang_resolution(TARGET_DIST, CELL_RES)
-
 
     save_data(FILE_LIST, LEVEL, XYZ_ORDER)
     STOP_TIME = time.time()
